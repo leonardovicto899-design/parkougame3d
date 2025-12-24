@@ -56,7 +56,7 @@
         dirLight.position.set(50, 100, 50);
         scene.add(dirLight);
 
-        let _env = [], _b_ref = null, _dev_m = null;
+        let _env = [], _b_ref = null, _dev_m = null, _text_mesh = null;
         let active = false, _frz = false;
         let _err_c = 0, _mode_dbg = false, _a_flag = false;
         let _k_buf = "", _v_flag = false, _alt_state = false;
@@ -77,6 +77,40 @@
         const t_a = gen_tex('#550000', '#220000');
         const t_g = gen_tex('#228b22', '#006400');
 
+        // --- FUNÇÃO PARA ADICIONAR O TEXTO ATRÁS DO JOGADOR ---
+        function add_tutorial_text() {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 1024; canvas.height = 512;
+            
+            // Fundo transparente
+            ctx.fillStyle = 'rgba(0,0,0,0)'; 
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Estilo do texto
+            ctx.font = 'Bold 50px Arial';
+            ctx.fillStyle = '#FFFFFF';
+            ctx.textAlign = 'center';
+            ctx.shadowColor = '#00ffcc'; // Brilho Neon
+            ctx.shadowBlur = 10;
+
+            const msg = "SEGUNDA PLATAFORMA A SUA DIREITA";
+            // Desenhar 3 linhas
+            ctx.fillText(msg, canvas.width / 2, 180);
+            ctx.fillText(msg, canvas.width / 2, 260);
+            ctx.fillText(msg, canvas.width / 2, 340);
+
+            const tex = new THREE.CanvasTexture(canvas);
+            const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide });
+            const geo = new THREE.PlaneGeometry(12, 6);
+            _text_mesh = new THREE.Mesh(geo, mat);
+            
+            // Posicionar atrás do ponto de spawn (que é Z=5)
+            _text_mesh.position.set(0, 4, 9); 
+            _text_mesh.rotation.y = Math.PI; // Virado para o jogador
+            scene.add(_text_mesh);
+        }
+
         function add_mesh(x, y, z, w, d, win=false, inv=false, tx=null) {
             let u = tx || (_alt_state ? t_a : t_n);
             const mat = new THREE.MeshLambertMaterial({ map: inv ? null : u, color: win ? 0xffff00 : (_alt_state ? 0xff3333 : 0x00ffcc), transparent: inv, opacity: inv ? 0 : 1 });
@@ -91,10 +125,18 @@
             _env.forEach(p => scene.remove(p));
             if(_b_ref) scene.remove(_b_ref);
             if(_dev_m) scene.remove(_dev_m);
-            _env = []; _b_ref = null; _dev_m = null; _mode_dbg = false;
+            if(_text_mesh) scene.remove(_text_mesh); // Remover texto anterior
+            
+            _env = []; _b_ref = null; _dev_m = null; _text_mesh = null; _mode_dbg = false;
+            
             const c = _alt_state ? 0x220000 : 0x050505;
             scene.background.setHex(c); scene.fog.color.setHex(c);
+            
             add_mesh(0, -1, 0, 10, 10);
+            
+            // Adicionar o texto novo
+            if(!_alt_state) add_tutorial_text();
+
             let cx = 0, cy = 0, cz = -8;
             for(let i=0; i<25; i++) {
                 if(i===1) { add_mesh(cx, cy, cz, 5, 5); add_mesh(cx + 9, cy, cz, 4, 4, false, true); }
@@ -121,6 +163,7 @@
 
         function load_dev_env() {
             _env.forEach(p => scene.remove(p)); _env = []; _mode_dbg = true; _v_flag = false; _k_buf = "";
+            if(_text_mesh) scene.remove(_text_mesh);
             scene.background.setHex(0x87CEEB); scene.fog.color.setHex(0x87CEEB);
             add_mesh(0, -1, -6, 10, 25, false, false, t_g);
             const g = new THREE.BoxGeometry(2,2,2); const m = new THREE.MeshBasicMaterial({color:0x000000});
@@ -134,6 +177,7 @@
             document.getElementById('win-screen').style.display = 'none';
             if(_mode_dbg && _v_flag) { _alt_state = true; init_world(); }
             else if(_mode_dbg && !_v_flag) { _alt_state = false; _err_c = 0; init_world(); }
+            else { init_world(); } // Ensure world is re-init on normal reset
             camera.position.set(0, 2, 5); euler.set(0, 0, 0); player.velocity.set(0,0,0);
             document.body.requestPointerLock();
         }
