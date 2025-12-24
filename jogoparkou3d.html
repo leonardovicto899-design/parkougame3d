@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parkour 3D - Core</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; background-color: #000; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; text-shadow: 2px 2px 4px #000; }
+        #hud { position: absolute; top: 20px; left: 20px; font-size: 24px; font-weight: bold; color: #ffd700; pointer-events: none; }
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; background: white; border-radius: 50%; transform: translate(-50%, -50%); opacity: 0.8; }
+        #start-screen, #game-over, #win-screen { background: rgba(0, 0, 0, 0.9); padding: 40px; border-radius: 15px; pointer-events: auto; border: 2px solid #00ffcc; text-align: center; }
+        #start-screen { display: block; }
+        #game-over, #win-screen { display: none; }
+        button { background: #00ffcc; border: none; padding: 15px 40px; font-size: 1.2em; cursor: pointer; font-weight: bold; margin-top: 20px; border-radius: 5px; }
+        
+        .renderer-fix { animation: sys-x 0.2s infinite; filter: hue-rotate(90deg) invert(1); }
+        @keyframes sys-x {
+            0% { transform: translate(0) } 20% { transform: translate(-2px, 2px) }
+            40% { transform: translate(-2px, -2px) } 60% { transform: translate(2px, 2px) }
+            80% { transform: translate(2px, -2px) } 100% { transform: translate(0) }
+        }
+    </style>
+</head>
+<body>
+    <div id="hud">Moedas: <span id="coin-count">0</span></div>
+    <div id="crosshair"></div>
+    <div id="ui-layer">
+        <div id="start-screen">
+            <h1>NEON PARKOUR</h1>
+            <p>WASD para mover | ESPAÇO para pular</p>
+            <button id="start-btn">COMEÇAR</button>
+        </div>
+        <div id="game-over">
+            <h1 style="color: #ff4444;">VOCÊ CAIU!</h1>
+            <button onclick="reset_core()">TENTAR NOVAMENTE</button>
+        </div>
+        <div id="win-screen">
+            <h1 style="color: #ffff00;">VITÓRIA!</h1>
+            <button onclick="reset_core()">REINICIAR</button>
+        </div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x050505);
+        scene.fog = new THREE.FogExp2(0x050505, 0.015);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(50, 100, 50);
+        scene.add(dirLight);
+
+        let _env = [], _b_ref = null, _dev_m = null;
+        let active = false, _frz = false;
+        let _err_c = 0, _mode_dbg = false, _a_flag = false;
+        let _k_buf = "", _v_flag = false, _alt_state = false;
+
+        const player = { height: 1.8, speed: 14, jumpForce: 15, gravity: 38, velocity: new THREE.Vector3(), onGround: false };
+        const keys = { w: false, a: false, s: false, d: false, space: false };
+        let euler = new THREE.Euler(0, 0, 0, 'YXZ');
+
+        function gen_tex(c1, c2) {
+            const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+            const x = c.getContext('2d'); x.fillStyle = c1; x.fillRect(0,0,128,128);
+            x.fillStyle = c2; x.fillRect(0,0,64,64); x.fillRect(64,64,64,64);
+            const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2,2);
+            return t;
+        }
+
+        const t_n = gen_tex('#004444', '#002222');
+        const t_a = gen_tex('#550000', '#220000');
+        const t_g = gen_tex('#228b22', '#006400');
+
+        function add_mesh(x, y, z, w, d, win=false, inv=false, tx=null) {
+            let u = tx || (_alt_state ? t_a : t_n);
+            const mat = new THREE.MeshLambertMaterial({ map: inv ? null : u, color: win ? 0xffff00 : (_alt_state ? 0xff3333 : 0x00ffcc), transparent: inv, opacity: inv ? 0 : 1 });
+            const m = new THREE.Mesh(new THREE.BoxGeometry(w, 1, d), mat);
+            m.position.set(x, y, z);
+            scene.add(m);
+            if(inv) _b_ref = m; else _env.push(m);
+            return m;
+        }
+
+        function init_world() {
+            _env.forEach(p => scene.remove(p));
+            if(_b_ref) scene.remove(_b_ref);
+            if(_dev_m) scene.remove(_dev_m);
+            _env = []; _b_ref = null; _dev_m = null; _mode_dbg = false;
+            const c = _alt_state ? 0x220000 : 0x050505;
+            scene.background.setHex(c); scene.fog.color.setHex(c);
+            add_mesh(0, -1, 0, 10, 10);
+            let cx = 0, cy = 0, cz = -8;
+            for(let i=0; i<25; i++) {
+                if(i===1) { add_mesh(cx, cy, cz, 5, 5); add_mesh(cx + 9, cy, cz, 4, 4, false, true); }
+                else add_mesh(cx, cy, cz, 5, 5);
+                cx += (Math.random() - 0.5) * 10; cy += (Math.random() * 1.5); cz -= 10;
+            }
+            add_mesh(cx, cy + 0.5, cz, 10, 10, true);
+        }
+
+        let _actx;
+        function sys_audio_sync() {
+            if(!_actx) _actx = new (window.AudioContext || window.webkitAudioContext)();
+            let t = _actx.currentTime;
+            [0.1, 0.3, 0.1, 0.1].forEach(d => { 
+                const o = _actx.createOscillator(); const g = _actx.createGain();
+                o.connect(g); g.connect(_actx.destination); o.start(t); o.stop(t+d); t += d + 0.1;
+            });
+        }
+
+        function sys_err_handler() {
+            _frz = true; document.body.classList.add('renderer-fix');
+            setTimeout(() => { load_dev_env(); _frz = false; document.body.classList.remove('renderer-fix'); }, 5000);
+        }
+
+        function load_dev_env() {
+            _env.forEach(p => scene.remove(p)); _env = []; _mode_dbg = true; _v_flag = false; _k_buf = "";
+            scene.background.setHex(0x87CEEB); scene.fog.color.setHex(0x87CEEB);
+            add_mesh(0, -1, -6, 10, 25, false, false, t_g);
+            const g = new THREE.BoxGeometry(2,2,2); const m = new THREE.MeshBasicMaterial({color:0x000000});
+            _dev_m = new THREE.Mesh(g,m); _dev_m.position.set(0,1,-12); scene.add(_dev_m);
+            camera.position.set(0, 2, 0);
+        }
+
+        function reset_core() {
+            active = true; _frz = false;
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('win-screen').style.display = 'none';
+            if(_mode_dbg && _v_flag) { _alt_state = true; init_world(); }
+            else if(_mode_dbg && !_v_flag) { _alt_state = false; _err_c = 0; init_world(); }
+            camera.position.set(0, 2, 5); euler.set(0, 0, 0); player.velocity.set(0,0,0);
+            document.body.requestPointerLock();
+        }
+
+        function start() {
+            active = true; document.getElementById('start-screen').style.display = 'none';
+            init_world(); camera.position.set(0, 2, 5); document.body.requestPointerLock();
+        }
+
+        document.addEventListener('mousemove', (e) => {
+            if (active && !_frz && document.pointerLockElement) {
+                euler.y -= e.movementX * 0.002; euler.x -= e.movementY * 0.002;
+                euler.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, euler.x));
+                camera.quaternion.setFromEuler(euler);
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if(_mode_dbg && _dev_m && e.key.length === 1) {
+                _k_buf += e.key.toUpperCase();
+                if(btoa(_k_buf.slice(-4)) === 'TE9TVA==') { _v_flag = true; _dev_m.material.color.setHex(0x00ff00); }
+            }
+            if(e.code === 'KeyW') keys.w = true; if(e.code === 'KeyS') keys.s = true;
+            if(e.code === 'KeyA') keys.a = true; if(e.code === 'KeyD') keys.d = true;
+            if(e.code === 'Space') keys.space = true;
+        });
+        document.addEventListener('keyup', (e) => {
+            if(e.code === 'KeyW') keys.w = false; if(e.code === 'KeyS') keys.s = false;
+            if(e.code === 'KeyA') keys.a = false; if(e.code === 'KeyD') keys.d = false;
+            if(e.code === 'Space') keys.space = false;
+        });
+
+        const rc = new THREE.Raycaster(); const clk = new THREE.Clock();
+
+        function loop() {
+            requestAnimationFrame(loop);
+            if (_frz || !active) return;
+            const dt = Math.min(clk.getDelta(), 0.1);
+            const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); fwd.y = 0; fwd.normalize();
+            const rgt = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion); rgt.y = 0; rgt.normalize();
+
+            if (player.onGround) {
+                const d = new THREE.Vector3();
+                if (keys.w) d.add(fwd); if (keys.s) d.sub(fwd); if (keys.d) d.add(rgt); if (keys.a) d.sub(rgt);
+                if (d.length() > 0) { d.normalize(); player.velocity.x = d.x * player.speed; player.velocity.z = d.z * player.speed; }
+                else { player.velocity.x *= 0.8; player.velocity.z *= 0.8; }
+                if (keys.space) { player.velocity.y = player.jumpForce; player.onGround = false; camera.position.y += 0.2; }
+            } else { player.velocity.x *= 0.995; player.velocity.z *= 0.995; }
+
+            player.velocity.y -= player.gravity * dt; camera.position.add(player.velocity.clone().multiplyScalar(dt));
+
+            rc.set(camera.position, new THREE.Vector3(0, -1, 0));
+            let arr = [..._env]; if(_b_ref) arr.push(_b_ref);
+            const h = rc.intersectObjects(arr);
+
+            if (h.length > 0 && h[0].distance < 2.0 && player.velocity.y <= 0) {
+                const o = h[0].object; camera.position.y = h[0].point.y + 1.8; player.velocity.y = 0; player.onGround = true;
+                if (o === _b_ref && (player.velocity.x > 2 || keys.d)) {
+                    _err_c++; if(_err_c < 3) reset_core(); else sys_err_handler(); return;
+                }
+                if (o.material.color && o.material.color.getHex() === 0xffff00) {
+                    active = false; document.exitPointerLock(); document.getElementById('win-screen').style.display = 'block';
+                }
+            } else player.onGround = false;
+
+            if(_mode_dbg && _dev_m && !_a_flag && camera.position.distanceTo(_dev_m.position) < 8) { sys_audio_sync(); _a_flag = true; }
+            if (camera.position.y < -25) {
+                active = false; document.exitPointerLock();
+                if (_mode_dbg && _v_flag) reset_core(); else document.getElementById('game-over').style.display = 'block';
+            }
+            renderer.render(scene, camera);
+        }
+        document.getElementById('start-btn').onclick = () => start();
+        loop();
+    </script>
+</body>
+</html>
